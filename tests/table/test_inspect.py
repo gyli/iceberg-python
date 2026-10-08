@@ -16,20 +16,22 @@
 # under the License.
 
 from pathlib import PosixPath
+from types import SimpleNamespace
 from typing import Any
 
 import pyarrow as pa
 import pytest
 
 from pyiceberg.conversions import to_bytes
-from pyiceberg.manifest import DataFile, DataFileContent
+from pyiceberg.io.pyarrow import schema_to_pyarrow
+from pyiceberg.manifest import DataFile, DataFileContent, FileFormat, ManifestEntry, ManifestEntryStatus
 from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.schema import Schema
 from pyiceberg.table.inspect import InspectTable, _readable_bound
 from pyiceberg.table.snapshots import Snapshot
 from pyiceberg.transforms import IdentityTransform
 from pyiceberg.typedef import Record
-from pyiceberg.types import NestedField, StringType
+from pyiceberg.types import LongType, NestedField, StringType
 from tests.catalog.test_base import InMemoryCatalog
 
 
@@ -106,3 +108,31 @@ def test_inspect_manifests_preserves_empty_string_bounds(catalog: InMemoryCatalo
     partition_summary = tbl.inspect.manifests().to_pydict()["partition_summaries"][0][0]
     assert partition_summary["lower_bound"] == ""
     assert partition_summary["upper_bound"] == ""
+
+
+def test_inspect_files_shows_first_row_id(catalog: InMemoryCatalog) -> None:
+    schema = Schema(NestedField(1, "id", LongType(), required=False))
+    tbl = catalog.create_table("default.files_first_row_id", schema=schema)
+    tbl.append(pa.Table.from_pylist([{"id": 1}], schema=schema_to_pyarrow(schema)))
+
+    # Writing v3 tables is not supported yet, so feed a v3 data file through a manifest stand-in
+    data_file = DataFile.from_args(
+        3,
+        content=DataFileContent.DATA,
+        file_path="s3://bucket/data.parquet",
+        file_format=FileFormat.PARQUET,
+        partition=Record(),
+        record_count=2,
+        file_size_in_bytes=10,
+        first_row_id=100,
+    )
+    data_file.spec_id = 0
+    manifest = SimpleNamespace(
+        partition_spec_id=0,
+        fetch_manifest_entry=lambda io: [ManifestEntry.from_args(status=ManifestEntryStatus.ADDED, data_file=data_file)],
+    )
+
+    files = tbl.inspect._get_files_from_manifest(manifest)
+    assert files.schema.field("first_row_id").type == pa.int64()
+    assert files["first_row_id"].to_pylist() == [100]
+    assert tbl.inspect.files()["first_row_id"].to_pylist() == [None]
