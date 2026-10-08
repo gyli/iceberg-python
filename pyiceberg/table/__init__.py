@@ -2295,11 +2295,13 @@ def _rest_file_to_data_file(rest_file: RESTContentFile) -> DataFile:
         value_counts = rest_file.value_counts.to_dict() if rest_file.value_counts else None
         null_value_counts = rest_file.null_value_counts.to_dict() if rest_file.null_value_counts else None
         nan_value_counts = rest_file.nan_value_counts.to_dict() if rest_file.nan_value_counts else None
+        first_row_id = rest_file.first_row_id
     else:
         column_sizes = None
         value_counts = None
         null_value_counts = None
         nan_value_counts = None
+        first_row_id = None
 
     data_file = DataFile.from_args(
         content=DataFileContent.from_rest_type(rest_file.content),
@@ -2314,6 +2316,7 @@ def _rest_file_to_data_file(rest_file: RESTContentFile) -> DataFile:
         nan_value_counts=nan_value_counts,
         split_offsets=rest_file.split_offsets,
         sort_order_id=rest_file.sort_order_id,
+        first_row_id=first_row_id,
     )
     data_file.spec_id = rest_file.spec_id
     return data_file
