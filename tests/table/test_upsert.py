@@ -24,7 +24,7 @@ from pyarrow import Table as pa_table
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.exceptions import NoSuchTableError
-from pyiceberg.expressions import AlwaysTrue, And, EqualTo, Reference
+from pyiceberg.expressions import AlwaysFalse, AlwaysTrue, And, EqualTo, Reference
 from pyiceberg.expressions.literals import LongLiteral
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.partitioning import PartitionField, PartitionSpec
@@ -714,6 +714,42 @@ def test_upsert_with_nulls(catalog: Catalog) -> None:
             {"foo": "banana", "bar": None, "baz": False},
         ],
         schema=schema,
+    )
+
+
+def test_upsert_with_null_in_join_column(catalog: Catalog) -> None:
+    identifier = "default.test_upsert_with_null_in_join_column"
+    _drop_table(catalog, identifier)
+
+    schema = pa.schema([("foo", pa.string()), ("bar", pa.int32())])
+    table = catalog.create_table(identifier, schema)
+    table.append(pa.Table.from_pylist([{"foo": "apple", "bar": 1}], schema=schema))
+
+    # A null key never matches an existing row, so the row is inserted
+    upd = table.upsert(
+        pa.Table.from_pylist([{"foo": None, "bar": 2}, {"foo": "apple", "bar": 3}], schema=schema), join_cols=["foo"]
+    )
+
+    assert upd.rows_updated == 1
+    assert upd.rows_inserted == 1
+    assert sorted(table.scan().to_arrow().to_pylist(), key=lambda row: row["bar"]) == [
+        {"foo": None, "bar": 2},
+        {"foo": "apple", "bar": 3},
+    ]
+
+
+def test_create_match_filter_skips_null_keys() -> None:
+    schema = pa.schema([pa.field("order_id", pa.int32()), pa.field("order_line_id", pa.int32())])
+
+    single = pa.Table.from_pylist([{"order_id": None, "order_line_id": 1}], schema=schema)
+    assert create_match_filter(single, ["order_id"]) == AlwaysFalse()
+
+    composite = pa.Table.from_pylist(
+        [{"order_id": 101, "order_line_id": None}, {"order_id": 101, "order_line_id": 1}], schema=schema
+    )
+    assert create_match_filter(composite, ["order_id", "order_line_id"]) == And(
+        EqualTo(term=Reference(name="order_id"), literal=LongLiteral(101)),
+        EqualTo(term=Reference(name="order_line_id"), literal=LongLiteral(1)),
     )
 
 
