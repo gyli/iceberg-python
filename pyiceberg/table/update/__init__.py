@@ -424,6 +424,10 @@ def _(update: SetDefaultSpecUpdate, base_metadata: TableMetadata, context: _Tabl
     return base_metadata.model_copy(update={"default_spec_id": new_spec_id})
 
 
+# Clock drift allowed between a new snapshot and the last table update, as in Java and Rust
+ONE_MINUTE_MS = 60_000
+
+
 @_apply_table_update.register(AddSnapshotUpdate)
 def _(update: AddSnapshotUpdate, base_metadata: TableMetadata, context: _TableMetadataUpdateContext) -> TableMetadata:
     if len(base_metadata.schemas) == 0:
@@ -443,6 +447,11 @@ def _(update: AddSnapshotUpdate, base_metadata: TableMetadata, context: _TableMe
         raise ValueError(
             f"Cannot add snapshot with sequence number {update.snapshot.sequence_number} "
             f"older than last sequence number {base_metadata.last_sequence_number}"
+        )
+    elif update.snapshot.timestamp_ms < base_metadata.last_updated_ms - ONE_MINUTE_MS:
+        raise ValueError(
+            f"Invalid snapshot timestamp {update.snapshot.timestamp_ms}: "
+            f"before last updated timestamp {base_metadata.last_updated_ms}"
         )
     elif base_metadata.format_version >= 3 and update.snapshot.first_row_id is None:
         raise ValueError("Cannot add snapshot without first row id")
