@@ -35,6 +35,7 @@ from pyiceberg.manifest import (
     DataFile,
     DataFileContent,
     FileFormat,
+    ManifestCacheInfo,
     ManifestContent,
     ManifestEntry,
     ManifestEntryStatus,
@@ -43,6 +44,7 @@ from pyiceberg.manifest import (
     _inherit_from_manifest,
     _manifests,
     clear_manifest_cache,
+    manifest_cache_info,
     read_manifest_list,
     write_manifest,
     write_manifest_list,
@@ -1371,6 +1373,26 @@ def test_clear_manifest_cache() -> None:
 
         # Verify cache is empty but still enabled
         assert len(manifest_module._manifest_cache) == 0, "Cache should be empty after clear"
+
+
+def test_manifest_cache_info() -> None:
+    io = PyArrowFileIO()
+
+    with TemporaryDirectory() as tmp_dir:
+        list_path = _create_test_manifest_list(manifest_module, io, tmp_dir, name="info", snapshot_id=1)
+        clear_manifest_cache()
+        assert manifest_cache_info() == ManifestCacheInfo(
+            hits=0, misses=0, maxsize=manifest_module._manifest_cache.maxsize, currsize=0
+        )
+
+        _manifests(io, list_path)
+        _manifests(io, list_path)
+        info = manifest_cache_info()
+        assert (info.hits, info.misses, info.currsize) == (1, 1, 1)
+
+        clear_manifest_cache()
+        info = manifest_cache_info()
+        assert (info.hits, info.misses, info.currsize) == (0, 0, 0)
 
 
 def test_manifest_cache_can_be_disabled_with_size_zero(monkeypatch: pytest.MonkeyPatch) -> None:

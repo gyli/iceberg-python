@@ -26,6 +26,7 @@ from types import TracebackType
 from typing import (
     Any,
     Literal,
+    NamedTuple,
 )
 
 from cachetools import LRUCache
@@ -936,6 +937,15 @@ class ManifestFile(Record):
         return hash(self.manifest_path)
 
 
+class ManifestCacheInfo(NamedTuple):
+    """Statistics of the manifest cache, mirroring functools.lru_cache's cache_info()."""
+
+    hits: int
+    misses: int
+    maxsize: int
+    currsize: int
+
+
 class _ManifestCache:
     """Process-wide ManifestFile cache keyed by manifest_path.
 
@@ -952,6 +962,8 @@ class _ManifestCache:
         self.maxsize = self._load_configured_size()
         self._cache = LRUCache(maxsize=self.maxsize) if self.maxsize > 0 else None
         self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
 
     @classmethod
     def _load_configured_size(cls) -> int:
@@ -968,18 +980,32 @@ class _ManifestCache:
         with self._lock:
             if self._cache is not None:
                 self._cache.clear()
+            self._hits = 0
+            self._misses = 0
 
     def get_or_cache(self, manifest_file: ManifestFile) -> ManifestFile:
-        if self._cache is None:
-            return manifest_file
-
         with self._lock:
+            if self._cache is None:
+                self._misses += 1
+                return manifest_file
+
             manifest_path = manifest_file.manifest_path
             if manifest_path in self._cache:
+                self._hits += 1
                 return self._cache[manifest_path]
 
+            self._misses += 1
             self._cache[manifest_path] = manifest_file
             return manifest_file
+
+    def info(self) -> ManifestCacheInfo:
+        with self._lock:
+            return ManifestCacheInfo(
+                hits=self._hits,
+                misses=self._misses,
+                maxsize=self.maxsize,
+                currsize=len(self._cache) if self._cache is not None else 0,
+            )
 
     def __len__(self) -> int:
         with self._lock:
@@ -996,6 +1022,14 @@ def clear_manifest_cache() -> None:
     want to release cached manifest metadata between bursts of table reads.
     """
     _manifest_cache.clear()
+
+
+def manifest_cache_info() -> ManifestCacheInfo:
+    """Return hit and miss counts and the size of the manifest cache.
+
+    Counters are reset by clear_manifest_cache().
+    """
+    return _manifest_cache.info()
 
 
 def _manifests(io: FileIO, manifest_list: str) -> tuple[ManifestFile, ...]:
