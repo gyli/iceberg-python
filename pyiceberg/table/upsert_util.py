@@ -31,7 +31,8 @@ from pyiceberg.expressions import (
 
 
 def create_match_filter(df: pyarrow_table, join_cols: list[str]) -> BooleanExpression:
-    unique_keys = df.select(join_cols).group_by(join_cols).aggregate([])
+    # Like SQL equality, a null key never matches, so rows with a null in any join column are left out
+    unique_keys = df.select(join_cols).drop_null().group_by(join_cols).aggregate([])
 
     if len(join_cols) == 1:
         return In(join_cols[0], unique_keys[0].to_pylist())

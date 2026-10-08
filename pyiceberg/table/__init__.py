@@ -892,6 +892,7 @@ class Transaction:
         """
         try:
             import pyarrow as pa  # noqa: F401
+            import pyarrow.compute as pc
         except ModuleNotFoundError as e:
             raise ModuleNotFoundError("For writes PyArrow needs to be installed") from e
 
@@ -969,8 +970,13 @@ class Transaction:
                 expr_match_bound = bind(self.table_metadata.schema(), expr_match, case_sensitive=case_sensitive)
                 expr_match_arrow = expression_to_pyarrow(expr_match_bound)
 
+                # Negating the match yields null for null keys, which filter would drop, so keep them explicitly
+                not_matched = ~expr_match_arrow
+                for col in join_cols:
+                    not_matched = not_matched | pc.field(col).is_null()
+
                 # Filter rows per batch.
-                rows_to_insert = rows_to_insert.filter(~expr_match_arrow)
+                rows_to_insert = rows_to_insert.filter(not_matched)
 
         update_row_cnt = 0
         insert_row_cnt = 0
