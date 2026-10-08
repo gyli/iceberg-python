@@ -1724,6 +1724,17 @@ def test_truncate_pyarrow_transforms(
     assert expected == transform.pyarrow_transform(source_type)(input_arr)
 
 
+@pytest.mark.parametrize("transform", [BucketTransform(num_buckets=10), TruncateTransform(width=3)])
+def test_pyarrow_transforms_dictionary_encoded(transform: Transform[Any, Any]) -> None:
+    plain = pa.array(["developer", "iceberg", "developer", None])
+    expected = transform.pyarrow_transform(StringType())(plain)
+
+    assert transform.pyarrow_transform(StringType())(plain.dictionary_encode()) == expected
+    assert transform.pyarrow_transform(StringType())(pa.chunked_array([plain.dictionary_encode()])) == pa.chunked_array(
+        [expected]
+    )
+
+
 @pytest.mark.parametrize(
     "transform", [BucketTransform(num_buckets=5), TruncateTransform(width=5), YearTransform(), MonthTransform(), DayTransform()]
 )
