@@ -1426,6 +1426,60 @@ def test_load_table_200(rest_mock: Mocker, example_table_metadata_with_snapshot_
     assert actual == expected
 
 
+def test_load_table_reuses_cached_table_on_304(
+    rest_mock: Mocker, example_table_metadata_with_snapshot_v1_rest_json: dict[str, Any]
+) -> None:
+    url = f"{TEST_URI}v1/namespaces/fokko/tables/table"
+    rest_mock.get(
+        url,
+        [
+            {"json": example_table_metadata_with_snapshot_v1_rest_json, "status_code": 200, "headers": {"ETag": '"v1"'}},
+            {"status_code": 304},
+        ],
+    )
+    catalog = RestCatalog("rest", uri=TEST_URI, token=TEST_TOKEN)
+
+    first = catalog.load_table(("fokko", "table"))
+    second = catalog.load_table(("fokko", "table"))
+
+    load_requests = [request for request in rest_mock.request_history if request.url == url]
+    assert "If-None-Match" not in load_requests[0].headers
+    assert load_requests[1].headers["If-None-Match"] == '"v1"'
+    assert second == first
+
+
+@pytest.mark.parametrize(
+    "cache_properties", [{"rest-table-cache.max-entries": "0"}, {"rest-table-cache.expire-after-write-ms": "0"}]
+)
+def test_load_table_cache_disabled(
+    rest_mock: Mocker, example_table_metadata_with_snapshot_v1_rest_json: dict[str, Any], cache_properties: dict[str, str]
+) -> None:
+    url = f"{TEST_URI}v1/namespaces/fokko/tables/table"
+    rest_mock.get(url, json=example_table_metadata_with_snapshot_v1_rest_json, status_code=200, headers={"ETag": '"v1"'})
+    catalog = RestCatalog("rest", uri=TEST_URI, token=TEST_TOKEN, **cache_properties)
+
+    catalog.load_table(("fokko", "table"))
+    catalog.load_table(("fokko", "table"))
+
+    assert all("If-None-Match" not in request.headers for request in rest_mock.request_history if request.url == url)
+
+
+def test_drop_table_invalidates_cached_table(
+    rest_mock: Mocker, example_table_metadata_with_snapshot_v1_rest_json: dict[str, Any]
+) -> None:
+    url = f"{TEST_URI}v1/namespaces/fokko/tables/table"
+    rest_mock.get(url, json=example_table_metadata_with_snapshot_v1_rest_json, status_code=200, headers={"ETag": '"v1"'})
+    rest_mock.delete(url, status_code=204)
+    catalog = RestCatalog("rest", uri=TEST_URI, token=TEST_TOKEN)
+
+    catalog.load_table(("fokko", "table"))
+    catalog.drop_table(("fokko", "table"))
+    catalog.load_table(("fokko", "table"))
+
+    load_requests = [request for request in rest_mock.request_history if request.url == url and request.method == "GET"]
+    assert "If-None-Match" not in load_requests[1].headers
+
+
 def test_load_table_200_loading_mode(
     rest_mock: Mocker, example_table_metadata_with_snapshot_v1_rest_json: dict[str, Any]
 ) -> None:
