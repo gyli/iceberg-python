@@ -1731,14 +1731,38 @@ def _task_to_record_batches(
             if current_batch.num_rows == 0:
                 continue
 
-            yield _to_requested_schema(
-                projected_schema,
-                file_project_schema,
-                current_batch,
-                downcast_ns_timestamp_to_us=downcast_ns_timestamp_to_us,
-                projected_missing_fields=projected_missing_fields,
-                allow_timestamp_tz_mismatch=True,
+            yield _decode_dictionary_columns(
+                _to_requested_schema(
+                    projected_schema,
+                    file_project_schema,
+                    current_batch,
+                    downcast_ns_timestamp_to_us=downcast_ns_timestamp_to_us,
+                    projected_missing_fields=projected_missing_fields,
+                    allow_timestamp_tz_mismatch=True,
+                ),
+                keep=dictionary_columns,
             )
+
+
+def _decode_dictionary_columns(batch: pa.RecordBatch, keep: tuple[str, ...]) -> pa.RecordBatch:
+    """Decode dictionary-encoded columns that are not listed in keep.
+
+    Parquet files written from dictionary-encoded Arrow data embed the Arrow schema, so PyArrow
+    reads those columns back as dictionaries. Decoding them keeps the batch schema consistent
+    with files that store the same column as plain values.
+    """
+    if not any(pa.types.is_dictionary(field.type) and field.name not in keep for field in batch.schema):
+        return batch
+
+    fields = []
+    columns = []
+    for field, column in zip(batch.schema, batch.columns, strict=True):
+        if pa.types.is_dictionary(field.type) and field.name not in keep:
+            field = field.with_type(field.type.value_type)
+            column = column.dictionary_decode()
+        fields.append(field)
+        columns.append(column)
+    return pa.RecordBatch.from_arrays(columns, schema=pa.schema(fields, metadata=batch.schema.metadata))
 
 
 def _read_all_delete_files(io: FileIO, tasks: Iterable[FileScanTask]) -> dict[str, list[ChunkedArray]]:

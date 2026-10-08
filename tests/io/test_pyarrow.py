@@ -5456,6 +5456,48 @@ def test_to_arrow_batch_reader_preserves_dictionary_columns(tmpdir: str) -> None
     assert result.column("id").to_pylist() == [1, 2, 3, 4]
 
 
+def test_to_table_mixed_dictionary_and_plain_string_files(tmpdir: str) -> None:
+    """Files written from dictionary-encoded and plain strings must be readable together."""
+    from pyiceberg.expressions import AlwaysTrue
+    from pyiceberg.io.pyarrow import ArrowScan, PyArrowFileIO
+    from pyiceberg.partitioning import PartitionSpec
+    from pyiceberg.table import FileScanTask
+    from pyiceberg.table.metadata import TableMetadataV2
+
+    plain_schema = pa.schema([pa.field("label", pa.string(), nullable=True, metadata={PYARROW_PARQUET_FIELD_ID_KEY: "1"})])
+    dict_schema = pa.schema(
+        [pa.field("label", pa.dictionary(pa.int32(), pa.string()), nullable=True, metadata={PYARROW_PARQUET_FIELD_ID_KEY: "1"})]
+    )
+    plain_file = _write_table_to_data_file(
+        f"{tmpdir}/plain.parquet", plain_schema, pa.table([pa.array(["a", "b"])], schema=plain_schema)
+    )
+    dict_file = _write_table_to_data_file(
+        f"{tmpdir}/dict.parquet", dict_schema, pa.table([pa.array(["c", "c"]).dictionary_encode()], schema=dict_schema)
+    )
+    plain_file.spec_id = 0
+    dict_file.spec_id = 0
+
+    iceberg_schema = Schema(NestedField(1, "label", StringType(), required=False))
+    table_metadata = TableMetadataV2(
+        location=f"file://{tmpdir}",
+        last_column_id=1,
+        format_version=2,
+        schemas=[iceberg_schema],
+        partition_specs=[PartitionSpec()],
+    )
+    tasks = [FileScanTask(plain_file), FileScanTask(dict_file)]
+
+    result = ArrowScan(table_metadata, PyArrowFileIO(), iceberg_schema, AlwaysTrue()).to_table(tasks)
+    assert result.schema.field("label").type == pa.string()
+    assert result.column("label").to_pylist() == ["a", "b", "c", "c"]
+
+    result_dict = ArrowScan(
+        table_metadata, PyArrowFileIO(), iceberg_schema, AlwaysTrue(), dictionary_columns=("label",)
+    ).to_table(tasks)
+    assert pa.types.is_dictionary(result_dict.schema.field("label").type)
+    assert result_dict.column("label").to_pylist() == ["a", "b", "c", "c"]
+
+
 def test_dictionary_columns_produces_dict_encoded_output(tmpdir: str) -> None:
     """dictionary_columns passed to ArrowScan must yield dictionary-encoded arrays.
 
