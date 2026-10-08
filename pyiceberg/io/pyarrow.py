@@ -867,10 +867,11 @@ class _ConvertToArrowSchema(SchemaVisitorPerPrimitiveType[pa.DataType]):
             import geoarrow.pyarrow as ga
 
             wkb_type = ga.wkb().with_crs(geography_type.crs)
-            # Map Iceberg algorithm to GeoArrow edge type
-            if geography_type.algorithm == "spherical":
-                wkb_type = wkb_type.with_edge_type(ga.EdgeType.SPHERICAL)
-            # "planar" is the default edge type in GeoArrow, no need to set explicitly
+            # Iceberg's edge algorithms (spherical, vincenty, thomas, andoyer, karney) share their names with GeoArrow edge
+            # types. "planar" is the default edge type in GeoArrow, no need to set explicitly
+            algorithm = geography_type.algorithm.upper()
+            if algorithm != "PLANAR" and (edge_type := getattr(ga.EdgeType, algorithm, None)) is not None:
+                wkb_type = wkb_type.with_edge_type(edge_type)
             return wkb_type
         except ImportError:
             return pa.large_binary()
