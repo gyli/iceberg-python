@@ -2542,9 +2542,13 @@ class DataScan(TableScan):
                     projected_schema=self.projection(),
                     row_filter=self.row_filter,
                     case_sensitive=self.case_sensitive,
+                    limit=self.limit - res if self.limit is not None else None,
                 )
                 tbl = arrow_scan.to_table([task])
                 res += len(tbl)
+
+            if self.limit is not None and res >= self.limit:
+                return self.limit
         return res
 
 
