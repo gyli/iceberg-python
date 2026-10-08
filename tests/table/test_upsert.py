@@ -427,6 +427,44 @@ def test_upsert_into_empty_table(catalog: Catalog) -> None:
     assert upd.rows_inserted == 4
 
 
+def test_upsert_after_adding_column(catalog: Catalog) -> None:
+    identifier = "default.test_upsert_after_adding_column"
+    _drop_table(catalog, identifier)
+
+    schema = Schema(
+        NestedField(1, "city", StringType(), required=True),
+        NestedField(2, "inhabitants", IntegerType(), required=True),
+        identifier_field_ids=[1],
+    )
+    tbl = catalog.create_table(identifier, schema=schema)
+    tbl.append(
+        pa.Table.from_pylist(
+            [{"city": "Amsterdam", "inhabitants": 921402}, {"city": "Paris", "inhabitants": 2103000}],
+            schema=schema_to_pyarrow(schema),
+        )
+    )
+
+    with tbl.update_schema() as update:
+        update.add_column("country", StringType())
+
+    df = pa.Table.from_pylist(
+        [
+            {"city": "Amsterdam", "inhabitants": 921402, "country": "NL"},
+            {"city": "Drachten", "inhabitants": 45019, "country": "NL"},
+        ],
+        schema=schema_to_pyarrow(tbl.schema()),
+    )
+    upd = tbl.upsert(df)
+
+    assert upd.rows_updated == 1
+    assert upd.rows_inserted == 1
+    assert tbl.scan().to_arrow().sort_by("city").to_pylist() == [
+        {"city": "Amsterdam", "inhabitants": 921402, "country": "NL"},
+        {"city": "Drachten", "inhabitants": 45019, "country": "NL"},
+        {"city": "Paris", "inhabitants": 2103000, "country": None},
+    ]
+
+
 def test_create_match_filter_single_condition() -> None:
     """
     Test create_match_filter with a composite key where the source yields exactly one unique key.

@@ -941,7 +941,11 @@ class Transaction:
         if branch in self.table_metadata.refs:
             matched_iceberg_record_batches_scan = matched_iceberg_record_batches_scan.use_ref(branch)
 
-        matched_iceberg_record_batches = matched_iceberg_record_batches_scan.to_arrow_batch_reader()
+        # Project the current schema instead of the branch snapshot's schema, so that columns added
+        # by schema evolution after the last write are read back as nulls.
+        matched_iceberg_record_batches = _to_arrow_batch_reader_via_file_scan_tasks(
+            matched_iceberg_record_batches_scan, self.table_metadata.schema(), matched_iceberg_record_batches_scan.plan_files()
+        )
 
         batches_to_overwrite = []
         overwrite_predicates = []
