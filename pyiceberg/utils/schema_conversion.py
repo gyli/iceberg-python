@@ -48,7 +48,9 @@ from pyiceberg.types import (
     PrimitiveType,
     StringType,
     StructType,
+    TimestampNanoType,
     TimestampType,
+    TimestamptzNanoType,
     TimestamptzType,
     TimeType,
     UnknownType,
@@ -381,6 +383,11 @@ class AvroSchemaConversion:
                 return TimestamptzType()
             else:
                 return TimestampType()
+        elif logical_type == "timestamp-nanos":
+            if avro_logical_type.get("adjust-to-utc", False) is True:
+                return TimestamptzNanoType()
+            else:
+                return TimestampNanoType()
         elif (logical_type, physical_type) in LOGICAL_FIELD_TYPE_MAPPING:
             return LOGICAL_FIELD_TYPE_MAPPING[(logical_type, physical_type)]
         else:
