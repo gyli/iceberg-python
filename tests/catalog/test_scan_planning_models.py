@@ -190,6 +190,16 @@ def test_data_file_with_stats() -> None:
     assert df.column_sizes.to_dict() == {1: 500, 2: 524}
 
 
+def test_data_file_first_row_id_is_kept_in_converted_data_file() -> None:
+    from pyiceberg.table import _rest_file_to_data_file
+
+    rest_file = RESTDataFile.model_validate({**_rest_data_file(), "first-row-id": 100})
+    assert _rest_file_to_data_file(rest_file).first_row_id == 100
+
+    rest_file_without_row_id = RESTDataFile.model_validate(_rest_data_file())
+    assert _rest_file_to_data_file(rest_file_without_row_id).first_row_id is None
+
+
 def test_position_delete_file() -> None:
     delete_file = _rest_position_delete_file(file_path="s3://bucket/table/delete.puffin", file_format="puffin")
     pdf = RESTPositionDeleteFile.model_validate(delete_file)
