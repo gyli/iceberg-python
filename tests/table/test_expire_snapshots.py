@@ -21,9 +21,13 @@ from uuid import uuid4
 
 import pytest
 
+from pyiceberg.catalog import Catalog
+from pyiceberg.io.pyarrow import schema_to_pyarrow
+from pyiceberg.schema import Schema
 from pyiceberg.table import CommitTableResponse, Table
 from pyiceberg.table.update import RemoveSnapshotsUpdate, update_table_metadata
 from pyiceberg.table.update.snapshot import ExpireSnapshots
+from pyiceberg.types import IntegerType, NestedField
 
 
 def test_cannot_expire_protected_head_snapshot(table_v2: Table) -> None:
@@ -208,8 +212,12 @@ def test_expire_snapshots_by_ids(table_v2: Table) -> None:
                 "tag1": MagicMock(snapshot_id=KEEP_SNAPSHOT, snapshot_ref_type="tag"),
             },
             "snapshots": [
-                SimpleNamespace(snapshot_id=EXPIRE_SNAPSHOT_1, timestamp_ms=1, parent_snapshot_id=None),
-                SimpleNamespace(snapshot_id=EXPIRE_SNAPSHOT_2, timestamp_ms=1, parent_snapshot_id=None),
+                SimpleNamespace(
+                    snapshot_id=EXPIRE_SNAPSHOT_1, timestamp_ms=1, parent_snapshot_id=None, manifest_list="mock://snap-1.avro"
+                ),
+                SimpleNamespace(
+                    snapshot_id=EXPIRE_SNAPSHOT_2, timestamp_ms=1, parent_snapshot_id=None, manifest_list="mock://snap-2.avro"
+                ),
                 SimpleNamespace(snapshot_id=KEEP_SNAPSHOT, timestamp_ms=2, parent_snapshot_id=None),
             ],
         }
@@ -316,3 +324,39 @@ def test_update_remove_snapshots_with_statistics(table_v2_with_statistics: Table
     assert not any(stat.snapshot_id == REMOVE_SNAPSHOT for stat in new_metadata.statistics), (
         "Statistics for removed snapshot should be gone"
     )
+
+
+def test_expire_snapshots_deletes_expired_manifest_lists(catalog: Catalog) -> None:
+    import pyarrow as pa
+
+    catalog.create_namespace("default")
+    schema = Schema(NestedField(1, "value", IntegerType(), required=False))
+    table = catalog.create_table("default.expire_manifest_lists", schema=schema)
+    for value in range(3):
+        table.append(pa.Table.from_pylist([{"value": value}], schema=schema_to_pyarrow(schema)))
+
+    first, second, current = table.snapshots()
+    table.maintenance.expire_snapshots().by_ids([first.snapshot_id, second.snapshot_id]).commit()
+
+    assert not table.io.new_input(first.manifest_list).exists()
+    assert not table.io.new_input(second.manifest_list).exists()
+    assert table.io.new_input(current.manifest_list).exists()
+    assert sorted(table.scan().to_arrow()["value"].to_pylist()) == [0, 1, 2]
+
+
+def test_expire_snapshots_keeps_manifest_lists_when_not_autocommitted(catalog: Catalog) -> None:
+    import pyarrow as pa
+
+    from pyiceberg.table import Transaction
+
+    catalog.create_namespace("default")
+    schema = Schema(NestedField(1, "value", IntegerType(), required=False))
+    table = catalog.create_table("default.expire_in_transaction", schema=schema)
+    for value in range(2):
+        table.append(pa.Table.from_pylist([{"value": value}], schema=schema_to_pyarrow(schema)))
+
+    first = table.snapshots()[0]
+    ExpireSnapshots(transaction=Transaction(table, autocommit=False)).by_id(first.snapshot_id).commit()
+
+    # The expiration is only staged, so the snapshot still references its manifest list
+    assert table.io.new_input(first.manifest_list).exists()
