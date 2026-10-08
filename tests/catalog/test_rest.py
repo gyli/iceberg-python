@@ -3444,6 +3444,30 @@ def test_load_table_catalog_config_outranks_table_properties(
     assert table.io.properties["s3.proxy-uri"] == "http://table-only-proxy"
 
 
+@pytest.mark.parametrize("client_signer, expected_signer", [(None, "S3V4RestSigner"), ("", "")])
+def test_load_table_client_can_disable_remote_signing(
+    rest_mock: Mocker,
+    example_table_metadata_with_snapshot_v1: dict[str, Any],
+    client_signer: str | None,
+    expected_signer: str,
+) -> None:
+    rest_mock.get(
+        f"{TEST_URI}v1/namespaces/fokko/tables/table",
+        json={
+            "metadata-location": "s3://warehouse/database/table/metadata/00001.metadata.json",
+            "metadata": example_table_metadata_with_snapshot_v1,
+            "config": {"s3.signer": "S3V4RestSigner", "s3.signer.uri": "http://signer"},
+        },
+        status_code=200,
+        request_headers=TEST_HEADERS,
+    )
+    client_properties = {} if client_signer is None else {"s3.signer": client_signer}
+    catalog = RestCatalog("rest", uri=TEST_URI, token=TEST_TOKEN, **client_properties)
+    table = catalog.load_table(("fokko", "table"))
+
+    assert table.io.properties["s3.signer"] == expected_signer
+
+
 def test_load_credentials_with_longest_prefix(rest_mock: Mocker) -> None:
     rest_mock.get(
         f"{TEST_URI}v1/namespaces/fokko/tables/table/credentials",

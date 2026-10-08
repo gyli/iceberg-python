@@ -73,6 +73,7 @@ from pyiceberg.io import (
     AWS_REGION,
     AWS_SECRET_ACCESS_KEY,
     AWS_SESSION_TOKEN,
+    S3_SIGNER,
     FileIO,
     load_file_io,
 )
@@ -645,6 +646,9 @@ class RestCatalog(Catalog):
         table_properties: Properties = EMPTY_DICT,
     ) -> FileIO:
         merged_properties = {**table_properties, **self.properties, **properties}
+        if self.properties.get(S3_SIGNER) == "":
+            # An explicitly empty signer on the client opts out of server-provided remote signing
+            merged_properties[S3_SIGNER] = ""
         if self._auth_manager:
             merged_properties[AUTH_MANAGER] = self._auth_manager
         return load_file_io(merged_properties, location)
