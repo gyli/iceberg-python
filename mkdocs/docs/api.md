@@ -1615,6 +1615,10 @@ with table.maintenance.expire_snapshots() as expire:
     # Automatically commits when exiting the context
 ```
 
+After the expiration is committed, PyIceberg deletes the manifest list of each expired snapshot, since a manifest list
+belongs to a single snapshot. This is best-effort: a failed delete is logged and does not fail the expiration. Manifests
+and data files are not deleted, because other snapshots may still reference them.
+
 #### Real-world Example
 
 ```python

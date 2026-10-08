@@ -1358,6 +1358,27 @@ class ExpireSnapshots(UpdateTableMetadata["ExpireSnapshots"]):
         self._updates += (update,)
         return self._updates, self._requirements
 
+    def commit(self) -> None:
+        """Commit the expiration, then delete the manifest lists of the expired snapshots.
+
+        A manifest list belongs to exactly one snapshot, so it is unreferenced once its snapshot is expired.
+        Deletion is best-effort and happens only after an autocommit has landed. Manifests and data files are
+        left in place, since other snapshots may still reference them.
+        """
+        snapshots = self._transaction.table_metadata.snapshots
+        super().commit()
+
+        if not self._transaction._autocommit:
+            return
+
+        io = self._transaction._table.io
+        for snapshot in snapshots:
+            if snapshot.snapshot_id in self._snapshot_ids_to_expire:
+                try:
+                    io.delete(snapshot.manifest_list)
+                except Exception:
+                    logger.warning("Failed to delete manifest list %s of expired snapshot", snapshot.manifest_list, exc_info=True)
+
     def _get_protected_snapshot_ids(self) -> set[int]:
         """
         Get the IDs of protected snapshots.
