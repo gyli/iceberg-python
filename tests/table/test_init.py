@@ -2067,3 +2067,24 @@ def test_static_table_forwards_location_to_table_file_io(metadata_location: str,
 
     assert seen_locations, "expected at least one load_file_io call"
     assert all(loc is not None for loc in seen_locations), f"load_file_io called without a location: {seen_locations}"
+
+
+def test_count_respects_limit(catalog: Catalog) -> None:
+    import pyarrow as pa
+
+    from pyiceberg.expressions import GreaterThan
+    from pyiceberg.io.pyarrow import schema_to_pyarrow
+
+    catalog.create_namespace("default")
+    schema = Schema(NestedField(1, "value", IntegerType(), required=False))
+    table = catalog.create_table("default.count_limit", schema=schema)
+    for start in (0, 10):
+        table.append(pa.Table.from_pylist([{"value": v} for v in range(start, start + 10)], schema=schema_to_pyarrow(schema)))
+
+    assert table.scan().count() == 20
+    assert table.scan(limit=5).count() == 5
+    assert table.scan(limit=15).count() == 15
+    assert table.scan(limit=50).count() == 20
+    # Files with a residual filter are read, and the limit applies to the filtered rows
+    assert table.scan(row_filter=GreaterThan("value", 2), limit=3).count() == 3
+    assert table.scan(row_filter=GreaterThan("value", 2), limit=50).count() == 17
