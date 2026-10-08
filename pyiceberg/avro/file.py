@@ -25,6 +25,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from types import TracebackType
 from typing import (
     Generic,
@@ -100,11 +101,15 @@ class AvroFileHeader(Record):
 
     def get_schema(self) -> Schema:
         if _SCHEMA_KEY in self.meta:
-            avro_schema_string = self.meta[_SCHEMA_KEY]
-            avro_schema = json.loads(avro_schema_string)
-            return AvroSchemaConversion().avro_to_iceberg(avro_schema)
+            return _avro_schema_string_to_iceberg(self.meta[_SCHEMA_KEY])
         else:
             raise ValueError("No schema found in Avro file headers")
+
+
+@lru_cache(maxsize=128)
+def _avro_schema_string_to_iceberg(avro_schema_string: str) -> Schema:
+    # Manifests written under the same spec embed identical schema strings, so convert each one only once
+    return AvroSchemaConversion().avro_to_iceberg(json.loads(avro_schema_string))
 
 
 D = TypeVar("D", bound=StructProtocol)
