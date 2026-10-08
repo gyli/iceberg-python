@@ -410,6 +410,8 @@ catalog:
 | view-endpoints-supported | false                           | For backwards compatibility with older REST servers. Set to `true` if the server supports view endpoints but doesn't send the `endpoints` field in the ConfigResponse. |
 | scan-planning-mode | client | When set to `server`, and the catalog advertises the plan-table-scan endpoint, `table.scan()` uses REST server-side scan planning. May be set by the client, returned by the catalog via `GET /v1/config` defaults/overrides, or returned per table in the `config` of the `loadTable` response. The `loadTable` value takes precedence over the catalog-level value, which lets a server request server-side planning only for specific tables. Async plans (`status=submitted`) are polled via `GET .../plan/{plan-id}` until terminal state (completed / failed / cancelled). |
 | rest-scan-planning.poll-timeout-ms | 300000 | Maximum time to wait for an async scan plan to complete before failing (default: 5 minutes). |
+| rest-table-cache.max-entries | 100 | Maximum number of `loadTable` responses kept per catalog for freshness-aware loading. `load_table` sends the cached `ETag` as `If-None-Match` and reuses the cached table when the server answers `304 Not Modified`. Set to `0` to disable (default: 100). |
+| rest-table-cache.expire-after-write-ms | 300000 | Time a cached `loadTable` response is kept before a full load is required again. Set to `0` to disable (default: 5 minutes). |
 
 When server-side planning returns `storage-credentials` on a completed plan, PyIceberg applies them to the scan-scoped FileIO (layered on top of the existing table/load-time IO properties) so planned data and delete files can be read using the creds vended by the server.
 
