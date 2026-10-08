@@ -71,6 +71,18 @@ The memory used by this cache depends on the size and number of distinct manifes
 if you want a tighter memory bound, or call `clear_manifest_cache()` to proactively release cached manifest metadata in
 long-lived processes.
 
+To check how well the cache is working, call `manifest_cache_info()`. It returns the number of hits and misses, the
+maximum size and the current size, similar to `functools.lru_cache`'s `cache_info()`:
+
+```python
+from pyiceberg.manifest import manifest_cache_info
+
+print(manifest_cache_info())
+# ManifestCacheInfo(hits=42, misses=7, maxsize=128, currsize=7)
+```
+
+The counters are reset by `clear_manifest_cache()`.
+
 ## Tables
 
 Iceberg tables support table properties to configure table behavior.
