@@ -723,6 +723,17 @@ def test_geography_type_to_pyarrow_with_geoarrow() -> None:
     assert result_planar == expected_planar
 
 
+@pytest.mark.parametrize("algorithm", ["vincenty", "thomas", "andoyer", "karney"])
+def test_geography_type_to_pyarrow_maps_edge_algorithm(algorithm: str) -> None:
+    pytest.importorskip("geoarrow.pyarrow")
+    import geoarrow.pyarrow as ga
+
+    result = visit(GeographyType("OGC:CRS84", algorithm), _ConvertToArrowSchema())
+    # GeoArrow type equality ignores the edge type, so compare it directly
+    assert result == ga.wkb().with_crs("OGC:CRS84")
+    assert result.edge_type == getattr(ga.EdgeType, algorithm.upper())
+
+
 def test_struct_type_to_pyarrow(table_schema_simple: Schema) -> None:
     expected = pa.struct(
         [
