@@ -15,6 +15,7 @@
 #  specific language governing permissions and limitations
 #  under the License.
 import inspect
+import json
 from _decimal import Decimal
 from datetime import datetime
 from enum import Enum
@@ -85,6 +86,17 @@ def test_missing_schema() -> None:
         header.get_schema()
 
     assert "No schema found in Avro file headers" in str(exc_info.value)
+
+
+def test_get_schema_converts_each_schema_string_once() -> None:
+    schema = Schema(NestedField(1, "id", LongType(), required=True), NestedField(2, "name", StringType(), required=False))
+    schema_string = json.dumps(AvroSchemaConversion().iceberg_to_avro(schema, schema_name="test"))
+
+    first = AvroFileHeader(bytes(0), {"avro.schema": schema_string}, bytes(16)).get_schema()
+    second = AvroFileHeader(bytes(0), {"avro.schema": schema_string}, bytes(16)).get_schema()
+
+    assert first == schema
+    assert first is second
 
 
 # helper function to serialize our objects to dicts to enable
